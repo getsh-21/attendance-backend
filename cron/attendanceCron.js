@@ -1,43 +1,62 @@
-// This file runs an automatic job that marks employees "Absent"
-// if they didn't check in during the allowed time window.
+// This file runs automatic background jobs that mark employees "Absent"
+// if they miss their check-in windows.
 
 const cron = require("node-cron");
 const User = require("../models/User");
 const Attendance = require("../models/Attendance");
 const { getTodayDateString } = require("../utils/attendanceRules");
 
-// Finds or creates today's record for a user, then marks a session Absent
-const markAbsentIfMissing = async (session) => {
+// Runs once daily, right after the morning check-in window closes (08:05)
+const markMorningAbsent = async () => {
   const today = getTodayDateString();
-  const statusField = session === "morning" ? "morningStatus" : "afternoonStatus";
-  const checkInField = session === "morning" ? "morningCheckIn" : "afternoonCheckIn";
-
   const employees = await User.find({ role: "employee", isActive: true });
 
   for (const employee of employees) {
-    let record = await Attendance.findOne({ employee: employee._id, date: today });
-
-    if (!record) {
+    let record = await Attendance.findOne({
+      employee: employee._id,
+      date: today,
+    });
+    if (!record)
       record = new Attendance({ employee: employee._id, date: today });
-    }
 
-    if (!record[checkInField]) {
-      record[statusField] = "Absent";
+    if (!record.morningCheckIn) {
+      record.morningCheckInStatus = "Absent";
       await record.save();
     }
   }
-
-  console.log(`Cron: ${session} absence check completed for ${today}`);
+  console.log(`Cron: morning check-in absence check completed for ${today}`);
 };
 
-// Schedules the two jobs. Cron format: "minute hour * * *" (24-hour clock, server time)
+// Runs frequently (every 5 minutes) since each employee's afternoon check-in
+// window closes at a DIFFERENT time, depending on when they personally
+// checked out in the morning. This job catches anyone whose personal
+// window has just closed without them checking in.
+const markAfternoonAbsentIfWindowClosed = async () => {
+  const today = getTodayDateString();
+
+  const records = await Attendance.find({
+    date: today,
+    morningCheckOut: { $ne: null },
+    afternoonCheckIn: null,
+    afternoonCheckInStatus: "Pending",
+  });
+
+  for (const record of records) {
+    const windowStart = new Date(
+      new Date(record.morningCheckOut).getTime() + 60 * 60 * 1000,
+    );
+    const windowEnd = new Date(windowStart.getTime() + 5 * 60 * 1000);
+
+    if (new Date() > windowEnd) {
+      record.afternoonCheckInStatus = "Absent";
+      await record.save();
+    }
+  }
+};
+
 const startAttendanceCron = () => {
-  // Runs at 08:06 daily — right after the morning check-in window (06:00-08:05) closes
-  cron.schedule("6 8 * * *", () => markAbsentIfMissing("morning"));
-
-  // Runs at 13:06 daily — right after the afternoon check-in window (13:00-13:05) closes
-  cron.schedule("6 13 * * *", () => markAbsentIfMissing("afternoon"));
-
+  cron.schedule("6 8 * * *", markMorningAbsent); // 08:06 daily
+  cron.schedule("*/5 * * * *", markAfternoonAbsentIfWindowClosed); // every 5 minutes
   console.log("Attendance cron jobs scheduled");
 };
 

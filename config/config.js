@@ -1,20 +1,19 @@
-// This file stores fixed settings used across the whole app,
-// like the attendance time windows. Keeping them in one place
-// means we only change them here, not in many files.
+// This file stores fixed settings used across the whole app —
+// the attendance time windows.
 
 module.exports = {
   ATTENDANCE_WINDOWS: {
     morning: {
       checkInStart: "06:00",
       checkInEnd: "08:05",
-      checkOutStart: "14:00",
-      checkOutEnd: "18:00",
+      checkOutStart: "11:05", // checkout allowed from this time onward — no upper limit
     },
     afternoon: {
-      checkInStart: "13:00",
-      checkInEnd: "13:05",
-      checkOutStart: "17:00",
-      checkOutEnd: null, // no upper limit — any time after 17:00 is allowed
+      // Afternoon check-in is NOT a fixed clock time anymore — it's calculated
+      // per employee, based on when THAT employee checked out in the morning.
+      checkInOffsetMinutes: 60, // window opens 1 hour after their morning checkout
+      checkInWindowMinutes: 5, // window stays open for 5 minutes
+      checkOutStart: "17:00", // checkout allowed from this time onward — no upper limit
     },
   },
 };

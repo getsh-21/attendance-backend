@@ -15,22 +15,40 @@ const getDashboard = async (req, res, next) => {
     const today = getTodayDateString();
 
     const totalEmployees = await User.countDocuments({ role: "employee" });
-
     const todayRecords = await Attendance.find({ date: today });
 
     let presentToday = 0;
-    let lateToday = 0;
     let absentToday = 0;
 
     todayRecords.forEach((record) => {
-      if (record.morningStatus === "On Time" || record.afternoonStatus === "On Time") presentToday++;
-      if (record.morningStatus === "Late" || record.afternoonStatus === "Late") lateToday++;
-      if (record.morningStatus === "Absent" && record.afternoonStatus === "Absent") absentToday++;
+      if (
+        record.morningCheckInStatus === "On Time" ||
+        record.afternoonCheckInStatus === "On Time"
+      ) {
+        presentToday++;
+      }
+      if (
+        record.morningCheckInStatus === "Absent" ||
+        record.afternoonCheckInStatus === "Absent"
+      ) {
+        absentToday++;
+      }
     });
 
-    const pendingPermissions = await Permission.countDocuments({ status: "Pending" });
-    const approvedPermissions = await Permission.countDocuments({ status: "Approved" });
-    const rejectedPermissions = await Permission.countDocuments({ status: "Rejected" });
+    // "Late" no longer exists as a concept: check-in is strictly enforced to a
+    // fixed window now, so an attempt is either accepted (On Time) or rejected
+    // outright — there's no "late but still recorded" state anymore.
+    const lateToday = 0;
+
+    const pendingPermissions = await Permission.countDocuments({
+      status: "Pending",
+    });
+    const approvedPermissions = await Permission.countDocuments({
+      status: "Approved",
+    });
+    const rejectedPermissions = await Permission.countDocuments({
+      status: "Rejected",
+    });
 
     res.status(200).json({
       success: true,
@@ -53,9 +71,6 @@ const getDashboard = async (req, res, next) => {
 const getUsers = async (req, res, next) => {
   try {
     const { search, department, position } = req.query;
-
-    // Removed the "role: employee" filter so admins can see everyone,
-    // including other admins, in the management list
     const filter = {};
 
     if (search) {
@@ -68,7 +83,6 @@ const getUsers = async (req, res, next) => {
     if (position) filter.position = position;
 
     const users = await User.find(filter).select("-password");
-
     res.status(200).json({ success: true, count: users.length, users });
   } catch (error) {
     next(error);
@@ -76,17 +90,21 @@ const getUsers = async (req, res, next) => {
 };
 
 // PUT /api/admin/user/:id
-// Handles: edit info, disable/enable, reset password, and role change (promote/demote)
 const updateUser = async (req, res, next) => {
   try {
-    const { fullName, department, position, isActive, newPassword, role } = req.body;
+    const { fullName, department, position, isActive, newPassword, role } =
+      req.body;
 
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Prevent an admin from accidentally demoting/locking themselves out
-    if (req.user._id.toString() === user._id.toString() && (role || typeof isActive === "boolean")) {
-      return res.status(400).json({ message: "You cannot change your own role or active status" });
+    if (
+      req.user._id.toString() === user._id.toString() &&
+      (role || typeof isActive === "boolean")
+    ) {
+      return res
+        .status(400)
+        .json({ message: "You cannot change your own role or active status" });
     }
 
     if (fullName) user.fullName = fullName;
@@ -94,20 +112,18 @@ const updateUser = async (req, res, next) => {
     if (position) user.position = position;
     if (typeof isActive === "boolean") user.isActive = isActive;
 
-    // NEW: allow promoting an employee to admin, or demoting an admin back to employee
     if (role) {
       if (!["employee", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Role must be 'employee' or 'admin'" });
+        return res
+          .status(400)
+          .json({ message: "Role must be 'employee' or 'admin'" });
       }
       user.role = role;
     }
 
-    if (newPassword) {
-      user.password = newPassword;
-    }
+    if (newPassword) user.password = newPassword;
 
     await user.save();
-
     res.status(200).json({ success: true, message: "User updated", user });
   } catch (error) {
     next(error);
@@ -119,18 +135,16 @@ const deleteUser = async (req, res, next) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
-
     res.status(200).json({ success: true, message: "User deleted" });
   } catch (error) {
     next(error);
   }
 };
 
-// GET /api/admin/attendance?date=YYYY-MM-DD&department=&status=
+// GET /api/admin/attendance?date=YYYY-MM-DD
 const getAllAttendance = async (req, res, next) => {
   try {
     const { date, page = 1, limit = 20 } = req.query;
-
     const filter = {};
     if (date) filter.date = date;
 
@@ -165,23 +179,30 @@ const getAllPermissions = async (req, res, next) => {
       .populate("employee", "fullName department position")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({ success: true, count: permissions.length, permissions });
+    res
+      .status(200)
+      .json({ success: true, count: permissions.length, permissions });
   } catch (error) {
     next(error);
   }
 };
 
-// PUT /api/admin/permission/:id  Body: { status: "Approved" | "Rejected", adminRemarks }
+// PUT /api/admin/permission/:id
 const updatePermissionStatus = async (req, res, next) => {
   try {
     const { status, adminRemarks } = req.body;
 
     if (!["Approved", "Rejected"].includes(status)) {
-      return res.status(400).json({ message: "Status must be 'Approved' or 'Rejected'" });
+      return res
+        .status(400)
+        .json({ message: "Status must be 'Approved' or 'Rejected'" });
     }
 
-    const permission = await Permission.findById(req.params.id).populate("employee");
-    if (!permission) return res.status(404).json({ message: "Permission request not found" });
+    const permission = await Permission.findById(req.params.id).populate(
+      "employee",
+    );
+    if (!permission)
+      return res.status(404).json({ message: "Permission request not found" });
 
     permission.status = status;
     permission.adminRemarks = adminRemarks || "";
@@ -190,16 +211,23 @@ const updatePermissionStatus = async (req, res, next) => {
     await Notification.create({
       recipient: permission.employee._id,
       message: `Your ${permission.permissionType} request was ${status.toLowerCase()}.`,
-      type: status === "Approved" ? "Permission Approved" : "Permission Rejected",
+      type:
+        status === "Approved" ? "Permission Approved" : "Permission Rejected",
     });
 
     await sendEmail(
       permission.employee.email,
       `Permission Request ${status}`,
-      `Hello ${permission.employee.fullName}, your ${permission.permissionType} request has been ${status.toLowerCase()}. Remarks: ${adminRemarks || "None"}`
+      `Hello ${permission.employee.fullName}, your ${permission.permissionType} request has been ${status.toLowerCase()}. Remarks: ${adminRemarks || "None"}`,
     );
 
-    res.status(200).json({ success: true, message: `Permission ${status.toLowerCase()}`, permission });
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: `Permission ${status.toLowerCase()}`,
+        permission,
+      });
   } catch (error) {
     next(error);
   }
@@ -212,15 +240,20 @@ const exportExcel = async (req, res, next) => {
     const filter = {};
     if (date) filter.date = date;
 
-    const records = await Attendance.find(filter).populate("employee", "fullName department position");
-
+    const records = await Attendance.find(filter).populate(
+      "employee",
+      "fullName department position",
+    );
     const workbook = await generateAttendanceExcel(records);
 
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
-    res.setHeader("Content-Disposition", "attachment; filename=attendance-report.xlsx");
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=attendance-report.xlsx",
+    );
 
     await workbook.xlsx.write(res);
     res.end();

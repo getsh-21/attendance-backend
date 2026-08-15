@@ -1,4 +1,5 @@
-// This defines a leave/permission request submitted by an employee.
+// This defines a leave/permission request submitted by an employee,
+// now with an optional supporting document (e.g. a medical certificate).
 
 const mongoose = require("mongoose");
 
@@ -12,7 +13,13 @@ const permissionSchema = new mongoose.Schema(
     position: { type: String, required: true },
     permissionType: {
       type: String,
-      enum: ["Sick Leave", "Annual Leave", "Emergency", "Official Duty", "Personal"],
+      enum: [
+        "Sick Leave",
+        "Annual Leave",
+        "Emergency",
+        "Official Duty",
+        "Personal",
+      ],
       required: true,
     },
     reason: { type: String, required: true },
@@ -24,8 +31,10 @@ const permissionSchema = new mongoose.Schema(
       default: "Pending",
     },
     adminRemarks: { type: String, default: "" },
+    // NEW: path to an uploaded supporting document, e.g. a medical certificate
+    medicalFile: { type: String, default: "" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Permission", permissionSchema);

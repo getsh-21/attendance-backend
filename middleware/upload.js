@@ -1,36 +1,56 @@
-// This file configures Multer to handle profile picture uploads.
+// This file configures Multer for TWO different upload types:
+// 1) Profile pictures (images only, small size limit)
+// 2) Permission documents like medical certificates (images or PDF, larger limit)
 
 const multer = require("multer");
 const path = require("path");
 
-// Tell Multer where to save files and what to name them
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "uploads/"); // saves into the /uploads folder
-  },
-  filename: function (req, file, cb) {
-    // Example result: 64f1a2b3-1690000000000.jpg
+// --- Profile picture upload config ---
+const profileStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => {
     const uniqueName = `${req.user._id}-${Date.now()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   },
 });
 
-// Only allow image files, and cap the size at 2MB
-const fileFilter = (req, file, cb) => {
+const profileFileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|webp/;
-  const isValidType = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-
-  if (isValidType) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files (jpg, jpeg, png, webp) are allowed"));
-  }
+  const isValidType = allowedTypes.test(
+    path.extname(file.originalname).toLowerCase(),
+  );
+  if (isValidType) cb(null, true);
+  else cb(new Error("Only image files (jpg, jpeg, png, webp) are allowed"));
 };
 
-const upload = multer({
-  storage,
-  fileFilter,
+const uploadProfileImage = multer({
+  storage: profileStorage,
+  fileFilter: profileFileFilter,
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
 });
 
-module.exports = upload;
+// --- Permission document upload config (e.g. medical certificates) ---
+const permissionStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/permissions/"),
+  filename: (req, file, cb) => {
+    const uniqueName = `${req.user._id}-${Date.now()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+const permissionFileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|webp|pdf/;
+  const isValidType = allowedTypes.test(
+    path.extname(file.originalname).toLowerCase(),
+  );
+  if (isValidType) cb(null, true);
+  else cb(new Error("Only image or PDF files are allowed"));
+};
+
+const uploadPermissionFile = multer({
+  storage: permissionStorage,
+  fileFilter: permissionFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+});
+
+module.exports = { uploadProfileImage, uploadPermissionFile };
