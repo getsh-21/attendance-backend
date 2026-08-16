@@ -7,6 +7,8 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const fs = require("fs");
+const path = require("path");
 const connectDB = require("./config/db");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { startAttendanceCron } = require("./cron/attendanceCron");
@@ -17,16 +19,30 @@ const adminRoutes = require("./routes/adminRoutes");
 
 connectDB();
 
+// Make sure the upload folders actually exist before anything tries to write
+// to them. This matters especially on hosting platforms like Render, where
+// the filesystem can reset between deploys — an empty folder with just a
+// .gitkeep file doesn't always survive that process, so we recreate it
+// in code every time the server starts, just to be safe.
+const uploadsDir = path.join(__dirname, "uploads");
+const permissionsDir = path.join(__dirname, "uploads", "permissions");
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log("Created missing uploads/ directory");
+}
+if (!fs.existsSync(permissionsDir)) {
+  fs.mkdirSync(permissionsDir, { recursive: true });
+  console.log("Created missing uploads/permissions/ directory");
+}
+
 const app = express();
 
-// Helmet sets safe HTTP headers, but by default it blocks cross-origin
-// loading of images/files (Cross-Origin-Resource-Policy: same-origin).
-// Since our frontend (port 5173) and backend (port 5000) are different
-// origins, we need to relax this specifically so uploaded profile
-// pictures can actually display in the browser.
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 
 app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
 app.use(express.json());
@@ -35,7 +51,6 @@ app.use(express.urlencoded({ extended: true }));
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 app.use(limiter);
 
-// Serve uploaded profile images as static files
 app.use("/uploads", express.static("uploads"));
 
 app.use("/api/auth", authRoutes);
