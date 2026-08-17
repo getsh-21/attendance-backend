@@ -1,12 +1,11 @@
 // This file runs automatic background jobs that mark employees "Absent"
-// if they miss their check-in windows.
+// if they miss their check-in windows. Schedules run explicitly in EAT.
 
 const cron = require("node-cron");
 const User = require("../models/User");
 const Attendance = require("../models/Attendance");
 const { getTodayDateString } = require("../utils/attendanceRules");
 
-// Runs once daily, right after the morning check-in window closes (08:05)
 const markMorningAbsent = async () => {
   const today = getTodayDateString();
   const employees = await User.find({ role: "employee", isActive: true });
@@ -27,10 +26,6 @@ const markMorningAbsent = async () => {
   console.log(`Cron: morning check-in absence check completed for ${today}`);
 };
 
-// Runs frequently (every 5 minutes) since each employee's afternoon check-in
-// window closes at a DIFFERENT time, depending on when they personally
-// checked out in the morning. This job catches anyone whose personal
-// window has just closed without them checking in.
 const markAfternoonAbsentIfWindowClosed = async () => {
   const today = getTodayDateString();
 
@@ -55,9 +50,16 @@ const markAfternoonAbsentIfWindowClosed = async () => {
 };
 
 const startAttendanceCron = () => {
-  cron.schedule("6 8 * * *", markMorningAbsent); // 08:06 daily
-  cron.schedule("*/5 * * * *", markAfternoonAbsentIfWindowClosed); // every 5 minutes
-  console.log("Attendance cron jobs scheduled");
+  // The { timezone: ... } option tells node-cron to interpret "8:06" as
+  // EAT, not the server's own local time (UTC on Render) - without this,
+  // these jobs would fire 3 hours off from when they're supposed to.
+  cron.schedule("6 8 * * *", markMorningAbsent, {
+    timezone: "Africa/Addis_Ababa",
+  });
+  cron.schedule("*/5 * * * *", markAfternoonAbsentIfWindowClosed, {
+    timezone: "Africa/Addis_Ababa",
+  });
+  console.log("Attendance cron jobs scheduled (EAT timezone)");
 };
 
 module.exports = { startAttendanceCron };

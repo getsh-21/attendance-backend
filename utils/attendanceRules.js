@@ -1,16 +1,25 @@
-// This file contains the logic that decides whether a check-in or
-// check-out is currently allowed. Afternoon check-in is special — it
-// depends on the individual employee's own morning checkout time,
-// not a fixed clock time shared by everyone.
+// This file decides whether a check-in/check-out is currently allowed.
+// All time comparisons are calculated in East Africa Time (EAT, UTC+3)
+// explicitly - NOT the server's own local time. This matters because
+// Render runs servers in UTC by default, which would otherwise make
+// check-in windows appear closed even during the correct local time
+// in Ethiopia.
 
 const { ATTENDANCE_WINDOWS } = require("../config/config");
+
+const EAT_OFFSET_MINUTES = 180; // Ethiopia is always UTC+3, no daylight saving
+
+// Current time as "minutes since midnight" in EAT, regardless of server timezone
+const nowMinutesInEAT = () => {
+  const now = new Date();
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return (utcMinutes + EAT_OFFSET_MINUTES) % 1440;
+};
 
 const timeToMinutes = (timeStr) => {
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
-
-const dateToMinutes = (date) => date.getHours() * 60 + date.getMinutes();
 
 const isWithinWindow = (nowMinutes, startStr, endStr) => {
   const start = timeToMinutes(startStr);
@@ -18,9 +27,8 @@ const isWithinWindow = (nowMinutes, startStr, endStr) => {
   return nowMinutes >= start && nowMinutes <= end;
 };
 
-// MORNING CHECK-IN — fixed window 06:00–08:05
 const isMorningCheckInAllowed = () => {
-  const nowMinutes = dateToMinutes(new Date());
+  const nowMinutes = nowMinutesInEAT();
   return isWithinWindow(
     nowMinutes,
     ATTENDANCE_WINDOWS.morning.checkInStart,
@@ -28,16 +36,16 @@ const isMorningCheckInAllowed = () => {
   );
 };
 
-// MORNING CHECKOUT — open-ended, allowed from 11:05 onward
 const isMorningCheckoutAllowed = () => {
-  const nowMinutes = dateToMinutes(new Date());
+  const nowMinutes = nowMinutesInEAT();
   const startMinutes = timeToMinutes(ATTENDANCE_WINDOWS.morning.checkOutStart);
   return nowMinutes >= startMinutes;
 };
 
-// Calculates the afternoon check-in window for ONE employee, based on
-// their actual morning checkout timestamp.
-// Example: checked out at 12:00 -> window is 13:00 to 13:05.
+// Afternoon check-in window is based on the employee's own checkout
+// TIMESTAMP (a real Date object) - this part was already timezone-safe,
+// since Date arithmetic always operates on the same absolute instant
+// no matter what timezone is reading it.
 const getAfternoonCheckInWindow = (morningCheckOutTime) => {
   const checkoutDate = new Date(morningCheckOutTime);
   const start = new Date(
@@ -50,35 +58,38 @@ const getAfternoonCheckInWindow = (morningCheckOutTime) => {
   return { start, end };
 };
 
-// AFTERNOON CHECK-IN — allowed only during that employee's personal window
 const isAfternoonCheckInAllowed = (morningCheckOutTime) => {
-  if (!morningCheckOutTime) return false; // can't check in for afternoon without a morning checkout first
+  if (!morningCheckOutTime) return false;
   const { start, end } = getAfternoonCheckInWindow(morningCheckOutTime);
   const now = new Date();
   return now >= start && now <= end;
 };
 
-// AFTERNOON CHECKOUT — open-ended, allowed from 17:00 onward
 const isAfternoonCheckoutAllowed = () => {
-  const nowMinutes = dateToMinutes(new Date());
+  const nowMinutes = nowMinutesInEAT();
   const startMinutes = timeToMinutes(
     ATTENDANCE_WINDOWS.afternoon.checkOutStart,
   );
   return nowMinutes >= startMinutes;
 };
 
+// "Today" must also be calculated in EAT, not server UTC - otherwise near
+// midnight the server could think it's already "tomorrow" while it's
+// still "today" in Ethiopia.
 const getTodayDateString = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
+  const now = new Date();
+  const eatTime = new Date(now.getTime() + EAT_OFFSET_MINUTES * 60000);
+  const year = eatTime.getUTCFullYear();
+  const month = String(eatTime.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(eatTime.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
 
-// Formats a Date object as 24-hour "HH:MM" — used in error messages
+// Formats a stored Date object as 24-hour "HH:MM" IN EAT - used in error messages
 const formatTime24 = (date) => {
-  const h = String(date.getHours()).padStart(2, "0");
-  const m = String(date.getMinutes()).padStart(2, "0");
+  const eatTime = new Date(date.getTime() + EAT_OFFSET_MINUTES * 60000);
+  const h = String(eatTime.getUTCHours()).padStart(2, "0");
+  const m = String(eatTime.getUTCMinutes()).padStart(2, "0");
   return `${h}:${m}`;
 };
 
