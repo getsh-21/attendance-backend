@@ -18,6 +18,7 @@ const getDashboard = async (req, res, next) => {
     const todayRecords = await Attendance.find({ date: today });
 
     let presentToday = 0;
+    let lateToday = 0;
     let absentToday = 0;
 
     todayRecords.forEach((record) => {
@@ -27,6 +28,9 @@ const getDashboard = async (req, res, next) => {
       ) {
         presentToday++;
       }
+      if (record.morningCheckInStatus === "Late") {
+        lateToday++;
+      }
       if (
         record.morningCheckInStatus === "Absent" ||
         record.afternoonCheckInStatus === "Absent"
@@ -34,11 +38,6 @@ const getDashboard = async (req, res, next) => {
         absentToday++;
       }
     });
-
-    // "Late" no longer exists as a concept: check-in is strictly enforced to a
-    // fixed window now, so an attempt is either accepted (On Time) or rejected
-    // outright — there's no "late but still recorded" state anymore.
-    const lateToday = 0;
 
     const pendingPermissions = await Permission.countDocuments({
       status: "Pending",
@@ -90,6 +89,7 @@ const getUsers = async (req, res, next) => {
 };
 
 // PUT /api/admin/user/:id
+// Handles: edit info, disable/enable, reset password, and role change (promote/demote)
 const updateUser = async (req, res, next) => {
   try {
     const { fullName, department, position, isActive, newPassword, role } =
@@ -98,6 +98,7 @@ const updateUser = async (req, res, next) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Prevent an admin from accidentally demoting/locking themselves out
     if (
       req.user._id.toString() === user._id.toString() &&
       (role || typeof isActive === "boolean")
@@ -121,7 +122,9 @@ const updateUser = async (req, res, next) => {
       user.role = role;
     }
 
-    if (newPassword) user.password = newPassword;
+    if (newPassword) {
+      user.password = newPassword;
+    }
 
     await user.save();
     res.status(200).json({ success: true, message: "User updated", user });
@@ -187,7 +190,7 @@ const getAllPermissions = async (req, res, next) => {
   }
 };
 
-// PUT /api/admin/permission/:id
+// PUT /api/admin/permission/:id  Body: { status: "Approved" | "Rejected", adminRemarks }
 const updatePermissionStatus = async (req, res, next) => {
   try {
     const { status, adminRemarks } = req.body;

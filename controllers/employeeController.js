@@ -6,7 +6,7 @@ const Permission = require("../models/Permission");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
 const {
-  isMorningCheckInAllowed,
+  getMorningCheckInResult,
   isMorningCheckoutAllowed,
   isAfternoonCheckInAllowed,
   isAfternoonCheckoutAllowed,
@@ -15,7 +15,6 @@ const {
   formatTime24,
 } = require("../utils/attendanceRules");
 
-// GET /api/profile
 const getProfile = async (req, res, next) => {
   try {
     res.status(200).json({ success: true, user: req.user });
@@ -24,7 +23,6 @@ const getProfile = async (req, res, next) => {
   }
 };
 
-// PUT /api/profile
 const updateProfile = async (req, res, next) => {
   try {
     const { fullName, department, position } = req.body;
@@ -66,22 +64,23 @@ const checkIn = async (req, res, next) => {
     }
 
     if (session === "morning") {
-      if (!isMorningCheckInAllowed()) {
-        return res
-          .status(400)
-          .json({
-            message: "Morning check-in is only allowed between 06:00 and 08:05",
-          });
-      }
       if (record.morningCheckIn) {
         return res
           .status(400)
           .json({ message: "Already checked in for morning session" });
       }
+
+      const result = getMorningCheckInResult(); // "On Time", "Late", or null
+      if (!result) {
+        return res.status(400).json({
+          message:
+            "Morning check-in is only allowed between 06:00 and 09:00 (On Time until 08:05, Late until 09:00)",
+        });
+      }
+
       record.morningCheckIn = now;
-      record.morningCheckInStatus = "On Time";
+      record.morningCheckInStatus = result;
     } else {
-      // Afternoon check-in depends on THIS employee's own morning checkout time
       if (!record.morningCheckOut) {
         return res.status(400).json({
           message:
@@ -107,9 +106,13 @@ const checkIn = async (req, res, next) => {
 
     await record.save();
 
+    const statusField =
+      session === "morning"
+        ? record.morningCheckInStatus
+        : record.afternoonCheckInStatus;
     res.status(200).json({
       success: true,
-      message: `${session} check-in recorded as On Time`,
+      message: `${session} check-in recorded as ${statusField}`,
       attendance: record,
     });
   } catch (error) {
@@ -196,8 +199,6 @@ const checkOut = async (req, res, next) => {
   }
 };
 
-// POST /api/permission — now also accepts an optional uploaded file
-// (e.g. a medical certificate), via req.file from Multer
 const requestPermission = async (req, res, next) => {
   try {
     const { position, permissionType, reason, startDate, endDate } = req.body;
@@ -228,7 +229,6 @@ const requestPermission = async (req, res, next) => {
   }
 };
 
-// GET /api/history?from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&limit=10
 const getHistory = async (req, res, next) => {
   try {
     const { from, to, page = 1, limit = 10 } = req.query;
@@ -254,7 +254,6 @@ const getHistory = async (req, res, next) => {
   }
 };
 
-// GET /api/notifications
 const getNotifications = async (req, res, next) => {
   try {
     const notifications = await Notification.find({

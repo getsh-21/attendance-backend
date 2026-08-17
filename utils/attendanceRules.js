@@ -1,15 +1,12 @@
-// This file decides whether a check-in/check-out is currently allowed.
-// All time comparisons are calculated in East Africa Time (EAT, UTC+3)
-// explicitly - NOT the server's own local time. This matters because
-// Render runs servers in UTC by default, which would otherwise make
-// check-in windows appear closed even during the correct local time
-// in Ethiopia.
+// This file decides whether a check-in/check-out is currently allowed,
+// and whether a check-in counts as On Time or Late. All time comparisons
+// are calculated in East Africa Time (EAT, UTC+3) explicitly - NOT the
+// server's own local time, since Render runs servers in UTC by default.
 
 const { ATTENDANCE_WINDOWS } = require("../config/config");
 
 const EAT_OFFSET_MINUTES = 180; // Ethiopia is always UTC+3, no daylight saving
 
-// Current time as "minutes since midnight" in EAT, regardless of server timezone
 const nowMinutesInEAT = () => {
   const now = new Date();
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -27,13 +24,16 @@ const isWithinWindow = (nowMinutes, startStr, endStr) => {
   return nowMinutes >= start && nowMinutes <= end;
 };
 
-const isMorningCheckInAllowed = () => {
+// Returns "On Time", "Late", or null (meaning check-in is not allowed at all right now)
+const getMorningCheckInResult = () => {
   const nowMinutes = nowMinutesInEAT();
-  return isWithinWindow(
-    nowMinutes,
-    ATTENDANCE_WINDOWS.morning.checkInStart,
-    ATTENDANCE_WINDOWS.morning.checkInEnd,
-  );
+  const w = ATTENDANCE_WINDOWS.morning;
+
+  if (isWithinWindow(nowMinutes, w.checkInOnTimeStart, w.checkInOnTimeEnd))
+    return "On Time";
+  if (isWithinWindow(nowMinutes, w.checkInLateStart, w.checkInLateEnd))
+    return "Late";
+  return null;
 };
 
 const isMorningCheckoutAllowed = () => {
@@ -42,10 +42,6 @@ const isMorningCheckoutAllowed = () => {
   return nowMinutes >= startMinutes;
 };
 
-// Afternoon check-in window is based on the employee's own checkout
-// TIMESTAMP (a real Date object) - this part was already timezone-safe,
-// since Date arithmetic always operates on the same absolute instant
-// no matter what timezone is reading it.
 const getAfternoonCheckInWindow = (morningCheckOutTime) => {
   const checkoutDate = new Date(morningCheckOutTime);
   const start = new Date(
@@ -73,9 +69,6 @@ const isAfternoonCheckoutAllowed = () => {
   return nowMinutes >= startMinutes;
 };
 
-// "Today" must also be calculated in EAT, not server UTC - otherwise near
-// midnight the server could think it's already "tomorrow" while it's
-// still "today" in Ethiopia.
 const getTodayDateString = () => {
   const now = new Date();
   const eatTime = new Date(now.getTime() + EAT_OFFSET_MINUTES * 60000);
@@ -85,7 +78,6 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Formats a stored Date object as 24-hour "HH:MM" IN EAT - used in error messages
 const formatTime24 = (date) => {
   const eatTime = new Date(date.getTime() + EAT_OFFSET_MINUTES * 60000);
   const h = String(eatTime.getUTCHours()).padStart(2, "0");
@@ -94,7 +86,7 @@ const formatTime24 = (date) => {
 };
 
 module.exports = {
-  isMorningCheckInAllowed,
+  getMorningCheckInResult,
   isMorningCheckoutAllowed,
   isAfternoonCheckInAllowed,
   isAfternoonCheckoutAllowed,

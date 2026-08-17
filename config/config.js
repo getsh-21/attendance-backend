@@ -1,19 +1,19 @@
 // This file stores fixed settings used across the whole app —
-// the attendance time windows.
+// the attendance time windows, all interpreted in East Africa Time (EAT).
 
 module.exports = {
   ATTENDANCE_WINDOWS: {
     morning: {
-      checkInStart: "06:00",
-      checkInEnd: "08:05",
-      checkOutStart: "11:05", // checkout allowed from this time onward — no upper limit
+      checkInOnTimeStart: "06:00",
+      checkInOnTimeEnd: "08:05",
+      checkInLateStart: "08:06",
+      checkInLateEnd: "09:00",
+      checkOutStart: "11:05", // open-ended, no upper limit
     },
     afternoon: {
-      // Afternoon check-in is NOT a fixed clock time anymore — it's calculated
-      // per employee, based on when THAT employee checked out in the morning.
-      checkInOffsetMinutes: 60, // window opens 1 hour after their morning checkout
-      checkInWindowMinutes: 5, // window stays open for 5 minutes
-      checkOutStart: "17:00", // checkout allowed from this time onward — no upper limit
+      checkInOffsetMinutes: 60, // window opens 1 hour after employee's own morning checkout
+      checkInWindowMinutes: 5,
+      checkOutStart: "17:00", // open-ended, no upper limit
     },
   },
 };
