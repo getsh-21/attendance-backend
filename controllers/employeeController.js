@@ -1,5 +1,6 @@
 // This file handles everything a logged-in employee can do:
-// check in, check out, request permission (with optional file), view history, update profile.
+// check in, check out, request permission (with time range + optional file),
+// view history, update profile.
 
 const Attendance = require("../models/Attendance");
 const Permission = require("../models/Permission");
@@ -8,12 +9,20 @@ const User = require("../models/User");
 const {
   getMorningCheckInResult,
   isMorningCheckoutAllowed,
-  isAfternoonCheckInAllowed,
+  getAfternoonCheckInResult,
   isAfternoonCheckoutAllowed,
-  getAfternoonCheckInWindow,
+  getPermissionAfternoonCheckInResult,
   getTodayDateString,
-  formatTime24,
 } = require("../utils/attendanceRules");
+const {
+  applyPermissionToAttendance,
+} = require("../services/permissionAttendanceService");
+
+const PERMISSION_STATUSES = [
+  "Permission Allowed",
+  "Permission Denied",
+  "Permission Pending",
+];
 
 const getProfile = async (req, res, next) => {
   try {
@@ -70,7 +79,18 @@ const checkIn = async (req, res, next) => {
           .json({ message: "Already checked in for morning session" });
       }
 
-      const result = getMorningCheckInResult(); // "On Time", "Late", or null
+      // If a permission covers the morning and hasn't been denied, normal
+      // check-in doesn't apply - the status is already set by the permission.
+      if (
+        PERMISSION_STATUSES.includes(record.morningCheckInStatus) &&
+        record.morningCheckInStatus !== "Permission Denied"
+      ) {
+        return res.status(400).json({
+          message: `You have a permission request covering this session. Current status: ${record.morningCheckInStatus}`,
+        });
+      }
+
+      const result = getMorningCheckInResult();
       if (!result) {
         return res.status(400).json({
           message:
@@ -81,27 +101,57 @@ const checkIn = async (req, res, next) => {
       record.morningCheckIn = now;
       record.morningCheckInStatus = result;
     } else {
-      if (!record.morningCheckOut) {
+      // If a permission covers the afternoon and hasn't been denied, block -
+      // status already shown.
+      if (
+        PERMISSION_STATUSES.includes(record.afternoonCheckInStatus) &&
+        record.afternoonCheckInStatus !== "Permission Denied"
+      ) {
         return res.status(400).json({
-          message:
-            "You must check out from the morning session before checking in for the afternoon",
+          message: `You have a permission request covering this session. Current status: ${record.afternoonCheckInStatus}`,
         });
       }
-      if (!isAfternoonCheckInAllowed(record.morningCheckOut)) {
-        const { start, end } = getAfternoonCheckInWindow(
-          record.morningCheckOut,
-        );
-        return res.status(400).json({
-          message: `Afternoon check-in is only allowed between ${formatTime24(start)} and ${formatTime24(end)} (1 hour after your morning checkout)`,
-        });
-      }
+
       if (record.afternoonCheckIn) {
         return res
           .status(400)
           .json({ message: "Already checked in for afternoon session" });
       }
+
+      // If morning was under an active permission (Allowed/Pending), there's
+      // no real morning checkout - use the special 09:00-14:00 window instead.
+      const morningUnderPermission =
+        (record.morningCheckInStatus === "Permission Allowed" ||
+          record.morningCheckInStatus === "Permission Pending") &&
+        !record.morningCheckOut;
+
+      let result;
+      if (morningUnderPermission) {
+        result = getPermissionAfternoonCheckInResult();
+        if (!result) {
+          return res.status(400).json({
+            message:
+              "Afternoon check-in (after a morning permission) is only allowed between 09:00 and 14:00 (On Time until 13:05, Late until 14:00)",
+          });
+        }
+      } else {
+        if (!record.morningCheckOut) {
+          return res.status(400).json({
+            message:
+              "You must check out from the morning session before checking in for the afternoon",
+          });
+        }
+        result = getAfternoonCheckInResult(record.morningCheckOut);
+        if (!result) {
+          return res.status(400).json({
+            message:
+              "Afternoon check-in window has closed (2 hours 30 minutes after your morning checkout)",
+          });
+        }
+      }
+
       record.afternoonCheckIn = now;
-      record.afternoonCheckInStatus = "On Time";
+      record.afternoonCheckInStatus = result;
     }
 
     await record.save();
@@ -199,6 +249,8 @@ const checkOut = async (req, res, next) => {
   }
 };
 
+// POST /api/permission - now includes a specific date+time range, and
+// immediately applies its (Pending) status to any covered Attendance sessions.
 const requestPermission = async (req, res, next) => {
   try {
     const { position, permissionType, reason, startDate, endDate } = req.body;
@@ -216,6 +268,8 @@ const requestPermission = async (req, res, next) => {
       endDate,
       medicalFile: req.file ? req.file.path : "",
     });
+
+    await applyPermissionToAttendance(permission);
 
     res
       .status(201)

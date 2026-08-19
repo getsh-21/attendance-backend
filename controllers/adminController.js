@@ -8,8 +8,10 @@ const Notification = require("../models/Notification");
 const { getTodayDateString } = require("../utils/attendanceRules");
 const { generateAttendanceExcel } = require("../services/excelService");
 const { sendEmail } = require("../services/emailService");
+const {
+  applyPermissionToAttendance,
+} = require("../services/permissionAttendanceService");
 
-// GET /api/admin/dashboard
 const getDashboard = async (req, res, next) => {
   try {
     const today = getTodayDateString();
@@ -66,7 +68,6 @@ const getDashboard = async (req, res, next) => {
   }
 };
 
-// GET /api/admin/users?search=&department=&position=
 const getUsers = async (req, res, next) => {
   try {
     const { search, department, position } = req.query;
@@ -88,8 +89,6 @@ const getUsers = async (req, res, next) => {
   }
 };
 
-// PUT /api/admin/user/:id
-// Handles: edit info, disable/enable, reset password, and role change (promote/demote)
 const updateUser = async (req, res, next) => {
   try {
     const { fullName, department, position, isActive, newPassword, role } =
@@ -98,7 +97,6 @@ const updateUser = async (req, res, next) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Prevent an admin from accidentally demoting/locking themselves out
     if (
       req.user._id.toString() === user._id.toString() &&
       (role || typeof isActive === "boolean")
@@ -122,9 +120,7 @@ const updateUser = async (req, res, next) => {
       user.role = role;
     }
 
-    if (newPassword) {
-      user.password = newPassword;
-    }
+    if (newPassword) user.password = newPassword;
 
     await user.save();
     res.status(200).json({ success: true, message: "User updated", user });
@@ -133,7 +129,6 @@ const updateUser = async (req, res, next) => {
   }
 };
 
-// DELETE /api/admin/user/:id
 const deleteUser = async (req, res, next) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
@@ -144,7 +139,6 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
-// GET /api/admin/attendance?date=YYYY-MM-DD
 const getAllAttendance = async (req, res, next) => {
   try {
     const { date, page = 1, limit = 20 } = req.query;
@@ -171,7 +165,6 @@ const getAllAttendance = async (req, res, next) => {
   }
 };
 
-// GET /api/admin/permissions?status=Pending
 const getAllPermissions = async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -190,7 +183,8 @@ const getAllPermissions = async (req, res, next) => {
   }
 };
 
-// PUT /api/admin/permission/:id  Body: { status: "Approved" | "Rejected", adminRemarks }
+// PUT /api/admin/permission/:id - now also re-applies the decision onto
+// every Attendance session the permission covers.
 const updatePermissionStatus = async (req, res, next) => {
   try {
     const { status, adminRemarks } = req.body;
@@ -210,6 +204,8 @@ const updatePermissionStatus = async (req, res, next) => {
     permission.status = status;
     permission.adminRemarks = adminRemarks || "";
     await permission.save();
+
+    await applyPermissionToAttendance(permission);
 
     await Notification.create({
       recipient: permission.employee._id,
@@ -236,7 +232,6 @@ const updatePermissionStatus = async (req, res, next) => {
   }
 };
 
-// GET /api/admin/export/excel?date=YYYY-MM-DD
 const exportExcel = async (req, res, next) => {
   try {
     const { date } = req.query;

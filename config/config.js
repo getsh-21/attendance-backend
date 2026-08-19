@@ -11,8 +11,10 @@ module.exports = {
       checkOutStart: "11:05", // open-ended, no upper limit
     },
     afternoon: {
-      checkInOffsetMinutes: 60, // window opens 1 hour after employee's own morning checkout
-      checkInWindowMinutes: 5,
+      // Afternoon check-in is measured relative to THIS employee's own
+      // morning checkout time, not a fixed clock time.
+      onTimeMinutes: 65, // 1 hour 5 minutes - On Time if checked in within this
+      totalWindowMinutes: 150, // 2 hours 30 minutes - window closes entirely after this
       checkOutStart: "17:00", // open-ended, no upper limit
     },
   },

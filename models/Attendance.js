@@ -2,6 +2,16 @@
 
 const mongoose = require("mongoose");
 
+const STATUS_VALUES = [
+  "On Time",
+  "Late",
+  "Absent",
+  "Pending",
+  "Permission Allowed",
+  "Permission Denied",
+  "Permission Pending",
+];
+
 const attendanceSchema = new mongoose.Schema(
   {
     employee: {
@@ -14,7 +24,7 @@ const attendanceSchema = new mongoose.Schema(
     morningCheckIn: { type: Date, default: null },
     morningCheckInStatus: {
       type: String,
-      enum: ["On Time", "Late", "Absent", "Pending"],
+      enum: STATUS_VALUES,
       default: "Pending",
     },
 
@@ -28,7 +38,7 @@ const attendanceSchema = new mongoose.Schema(
     afternoonCheckIn: { type: Date, default: null },
     afternoonCheckInStatus: {
       type: String,
-      enum: ["On Time", "Absent", "Pending"],
+      enum: STATUS_VALUES,
       default: "Pending",
     },
 
