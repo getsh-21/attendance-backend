@@ -67,9 +67,8 @@ const isAfternoonCheckoutAllowed = () => {
 };
 
 // Special afternoon check-in window used ONLY when the employee's morning
-// session was covered by a permission (so there's no real morning checkout
-// to measure from). Fixed EAT clock window: On Time 09:00-13:05,
-// Late 13:06-14:00, otherwise not allowed.
+// session was covered by a permission (no real morning checkout to measure
+// from). Fixed EAT clock window.
 const PERMISSION_AFTERNOON_WINDOW = {
   onTimeStart: "09:00",
   onTimeEnd: "13:05",
@@ -85,8 +84,6 @@ const getPermissionAfternoonCheckInResult = () => {
   return null;
 };
 
-// Reference windows used to decide whether a permission's time range
-// overlaps the morning or afternoon session on a given date.
 const SESSION_REFERENCE_WINDOWS = {
   morning: { start: "06:00", end: "09:00" },
   afternoon: { start: "09:00", end: "17:00" },
@@ -101,8 +98,6 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Same idea as getTodayDateString but for any Date object - used to find
-// which calendar date (EAT) a permission's start/end timestamp falls on.
 const dateStringEAT = (date) => {
   const eatTime = new Date(date.getTime() + EAT_OFFSET_MINUTES * 60000);
   const year = eatTime.getUTCFullYear();
@@ -111,8 +106,6 @@ const dateStringEAT = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-// Time-of-day in minutes since midnight (EAT) for a given Date - used to
-// compare a permission's start/end time against the session windows.
 const timeOfDayMinutesEAT = (date) => {
   const eatTime = new Date(date.getTime() + EAT_OFFSET_MINUTES * 60000);
   return eatTime.getUTCHours() * 60 + eatTime.getUTCMinutes();
@@ -125,6 +118,38 @@ const formatTime24 = (date) => {
   return `${h}:${m}`;
 };
 
+// NEW: tells us whether a given calendar date (YYYY-MM-DD, EAT) is
+// strictly before today - used to know if a window has definitely closed.
+const isDateInPast = (dateString) => dateString < getTodayDateString();
+
+const isDateToday = (dateString) => dateString === getTodayDateString();
+
+// NEW: has the morning check-in window (On Time + Late, ends 09:00 EAT)
+// definitely closed for this date? True for any past date, or for today
+// once the current EAT time is past 09:00.
+const hasMorningWindowClosed = (dateString) => {
+  if (isDateInPast(dateString)) return true;
+  if (isDateToday(dateString)) {
+    return (
+      nowMinutesInEAT() >
+      timeToMinutes(ATTENDANCE_WINDOWS.morning.checkInLateEnd)
+    );
+  }
+  return false;
+};
+
+// NEW: has the permission-based afternoon window (09:00-14:00 EAT)
+// definitely closed for this date?
+const hasPermissionAfternoonWindowClosed = (dateString) => {
+  if (isDateInPast(dateString)) return true;
+  if (isDateToday(dateString)) {
+    return (
+      nowMinutesInEAT() > timeToMinutes(PERMISSION_AFTERNOON_WINDOW.lateEnd)
+    );
+  }
+  return false;
+};
+
 module.exports = {
   getMorningCheckInResult,
   isMorningCheckoutAllowed,
@@ -132,10 +157,15 @@ module.exports = {
   getAfternoonWindowCloseTime,
   isAfternoonCheckoutAllowed,
   getPermissionAfternoonCheckInResult,
+  PERMISSION_AFTERNOON_WINDOW,
   SESSION_REFERENCE_WINDOWS,
   getTodayDateString,
   dateStringEAT,
   timeOfDayMinutesEAT,
   timeToMinutes,
   formatTime24,
+  isDateInPast,
+  isDateToday,
+  hasMorningWindowClosed,
+  hasPermissionAfternoonWindowClosed,
 };

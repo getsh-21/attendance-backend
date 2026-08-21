@@ -11,10 +11,16 @@ const { sendEmail } = require("../services/emailService");
 const {
   applyPermissionToAttendance,
 } = require("../services/permissionAttendanceService");
+const { syncAttendanceForDate } = require("../services/attendanceSyncService");
 
+// GET /api/admin/dashboard
 const getDashboard = async (req, res, next) => {
   try {
     const today = getTodayDateString();
+
+    // Ensure today's records are up to date (including newly-Absent
+    // employees) before counting, instead of waiting for the next cron run.
+    await syncAttendanceForDate(today);
 
     const totalEmployees = await User.countDocuments({ role: "employee" });
     const todayRecords = await Attendance.find({ date: today });
@@ -139,19 +145,25 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
+// GET /api/admin/attendance?date=YYYY-MM-DD
 const getAllAttendance = async (req, res, next) => {
   try {
-    const { date, page = 1, limit = 20 } = req.query;
-    const filter = {};
-    if (date) filter.date = date;
+    const { date, page = 1, limit = 50 } = req.query;
+    const targetDate = date || getTodayDateString();
 
-    const records = await Attendance.find(filter)
+    // Ensures every active employee has a record for this date, and that
+    // any window-closed "Pending" statuses are finalized to "Absent" -
+    // this is what makes absent employees actually show up, even on
+    // "today" before the cron job has had a chance to run.
+    await syncAttendanceForDate(targetDate);
+
+    const records = await Attendance.find({ date: targetDate })
       .populate("employee", "fullName department position")
-      .sort({ date: -1 })
+      .sort({ "employee.fullName": 1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
-    const total = await Attendance.countDocuments(filter);
+    const total = await Attendance.countDocuments({ date: targetDate });
 
     res.status(200).json({
       success: true,
@@ -183,8 +195,6 @@ const getAllPermissions = async (req, res, next) => {
   }
 };
 
-// PUT /api/admin/permission/:id - now also re-applies the decision onto
-// every Attendance session the permission covers.
 const updatePermissionStatus = async (req, res, next) => {
   try {
     const { status, adminRemarks } = req.body;
@@ -235,10 +245,11 @@ const updatePermissionStatus = async (req, res, next) => {
 const exportExcel = async (req, res, next) => {
   try {
     const { date } = req.query;
-    const filter = {};
-    if (date) filter.date = date;
+    const targetDate = date || getTodayDateString();
 
-    const records = await Attendance.find(filter).populate(
+    await syncAttendanceForDate(targetDate);
+
+    const records = await Attendance.find({ date: targetDate }).populate(
       "employee",
       "fullName department position",
     );

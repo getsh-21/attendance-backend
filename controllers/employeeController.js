@@ -17,6 +17,9 @@ const {
 const {
   applyPermissionToAttendance,
 } = require("../services/permissionAttendanceService");
+const {
+  syncAttendanceForEmployeeToday,
+} = require("../services/attendanceSyncService");
 
 const PERMISSION_STATUSES = [
   "Permission Allowed",
@@ -50,7 +53,6 @@ const updateProfile = async (req, res, next) => {
   }
 };
 
-// POST /api/checkin  Body: { session: "morning" | "afternoon" }
 const checkIn = async (req, res, next) => {
   try {
     const { session } = req.body;
@@ -79,8 +81,6 @@ const checkIn = async (req, res, next) => {
           .json({ message: "Already checked in for morning session" });
       }
 
-      // If a permission covers the morning and hasn't been denied, normal
-      // check-in doesn't apply - the status is already set by the permission.
       if (
         PERMISSION_STATUSES.includes(record.morningCheckInStatus) &&
         record.morningCheckInStatus !== "Permission Denied"
@@ -101,8 +101,6 @@ const checkIn = async (req, res, next) => {
       record.morningCheckIn = now;
       record.morningCheckInStatus = result;
     } else {
-      // If a permission covers the afternoon and hasn't been denied, block -
-      // status already shown.
       if (
         PERMISSION_STATUSES.includes(record.afternoonCheckInStatus) &&
         record.afternoonCheckInStatus !== "Permission Denied"
@@ -118,8 +116,6 @@ const checkIn = async (req, res, next) => {
           .json({ message: "Already checked in for afternoon session" });
       }
 
-      // If morning was under an active permission (Allowed/Pending), there's
-      // no real morning checkout - use the special 09:00-14:00 window instead.
       const morningUnderPermission =
         (record.morningCheckInStatus === "Permission Allowed" ||
           record.morningCheckInStatus === "Permission Pending") &&
@@ -170,7 +166,6 @@ const checkIn = async (req, res, next) => {
   }
 };
 
-// POST /api/checkout  Body: { session: "morning" | "afternoon" }
 const checkOut = async (req, res, next) => {
   try {
     const { session } = req.body;
@@ -249,8 +244,6 @@ const checkOut = async (req, res, next) => {
   }
 };
 
-// POST /api/permission - now includes a specific date+time range, and
-// immediately applies its (Pending) status to any covered Attendance sessions.
 const requestPermission = async (req, res, next) => {
   try {
     const { position, permissionType, reason, startDate, endDate } = req.body;
@@ -283,8 +276,13 @@ const requestPermission = async (req, res, next) => {
   }
 };
 
+// GET /api/history - now syncs today's own record first, so an employee's
+// own history/dashboard correctly shows "Absent" for today once their
+// window has closed, even if they never opened the app until later.
 const getHistory = async (req, res, next) => {
   try {
+    await syncAttendanceForEmployeeToday(req.user._id);
+
     const { from, to, page = 1, limit = 10 } = req.query;
     const filter = { employee: req.user._id };
     if (from && to) filter.date = { $gte: from, $lte: to };
